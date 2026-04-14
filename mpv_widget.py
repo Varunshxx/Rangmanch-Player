@@ -3,7 +3,7 @@ import sys
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QMouseEvent
 
 # Add current directory to path for mpv-2.dll on Windows
 if sys.platform == 'win32':
@@ -43,10 +43,26 @@ class MpvWidget(QOpenGLWidget):
         def on_end_file(event):
             self.media_finished.emit()
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             self.toggle_pause()
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        x = event.position().x()
+        width = self.width()
+        if x < width / 3:
+            self.seek(-10)
+            if hasattr(self.window(), 'show_osd'):
+                self.window().show_osd("⏪ Seek -10s")
+        elif x > (2 * width / 3):
+            self.seek(10)
+            if hasattr(self.window(), 'show_osd'):
+                self.window().show_osd("⏩ Seek +10s")
+        else:
+            if hasattr(self.window(), '_toggle_fullscreen'):
+                self.window()._toggle_fullscreen()
+        super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event):
         # Forward mouse movement to the parent window so it can show controls
@@ -81,7 +97,11 @@ class MpvWidget(QOpenGLWidget):
         self.player.panscan = value
 
     def seek(self, seconds, mode='relative'):
-        self.player.seek(seconds, mode)
+        try:
+            # Use command directly for better stability across libmpv versions
+            self.player.command('seek', str(float(seconds)), mode)
+        except Exception as e:
+            print(f"Seek failed: {e}")
 
     def set_property(self, name, value):
         self.player[name] = value
@@ -126,11 +146,17 @@ class MpvWidget(QOpenGLWidget):
         self.ctx.update_cb = self._on_update
 
     def _on_update(self):
-        QTimer.singleShot(0, self.update)
+        try:
+            if self.isVisible():
+                QTimer.singleShot(0, self.update)
+        except RuntimeError:
+            pass
 
     def paintGL(self):
-        if self.ctx:
-            # Use the correct 'opengl_fbo' parameter format
+        if not self.ctx or self.isHidden():
+            return
+            
+        try:
             ww = int(self.width() * self.devicePixelRatio())
             hh = int(self.height() * self.devicePixelRatio())
             
@@ -138,6 +164,8 @@ class MpvWidget(QOpenGLWidget):
                 flip_y=True, 
                 opengl_fbo={'fbo': self.defaultFramebufferObject(), 'w': ww, 'h': hh}
             )
+        except Exception:
+            pass
 
     def shutdown(self):
         self.player.terminate()

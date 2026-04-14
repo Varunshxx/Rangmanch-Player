@@ -1,5 +1,5 @@
 import os
-from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QMenu
+from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QMenu, QLabel
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PyQt6.QtGui import QAction, QDragEnterEvent, QDropEvent, QCursor
 
@@ -65,6 +65,7 @@ class PlayerWindow(QMainWindow):
 
         # 3. Logic & Helpers
         self.ab_loop = ABLoop(self.mpv_widget)
+        self.setup_osd()
         self._setup_connections()
         self._setup_context_menu()
         
@@ -227,6 +228,38 @@ class PlayerWindow(QMainWindow):
         if config.get("auto_play_next"):
             self.playlist_panel.next_item()
 
+    # --- OSD (Visual Feedback) ---
+    def setup_osd(self):
+        self.osd_label = QLabel(self.mpv_widget)
+        self.osd_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.osd_label.setStyleSheet("""
+            QLabel {
+                background-color: rgba(0, 0, 0, 180);
+                color: #4fc3f7;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 10px 20px;
+                border-radius: 10px;
+                border: 1px solid #4fc3f7;
+            }
+        """)
+        self.osd_label.hide()
+        
+        self.osd_timer = QTimer(self)
+        self.osd_timer.setSingleShot(True)
+        self.osd_timer.setInterval(1500)
+        self.osd_timer.timeout.connect(self.osd_label.hide)
+
+    def show_osd(self, text):
+        self.osd_label.setText(text)
+        self.osd_label.adjustSize()
+        # Center in the player widget
+        x = (self.mpv_widget.width() - self.osd_label.width()) // 2
+        y = (self.mpv_widget.height() - self.osd_label.height()) // 2
+        self.osd_label.move(x, y)
+        self.osd_label.show()
+        self.osd_timer.start()
+
     # --- Feature Dialogs ---
     def _show_equalizer(self):
         dlg = EqualizerDialog(self.mpv_widget, self)
@@ -269,17 +302,22 @@ class PlayerWindow(QMainWindow):
             self._toggle_fullscreen()
         elif key == Qt.Key.Key_Left:
             self.mpv_widget.seek(-10)
+            self.show_osd("⏪ Seek -10s")
         elif key == Qt.Key.Key_Right:
             self.mpv_widget.seek(10)
+            self.show_osd("⏩ Seek +10s")
         elif key == Qt.Key.Key_Up:
             vol = min(150, (self.mpv_widget.get_property('volume') or 0) + 5)
             self.mpv_widget.set_property('volume', vol)
+            self.show_osd(f"🔊 Volume: {int(vol)}%")
         elif key == Qt.Key.Key_Down:
             vol = max(0, (self.mpv_widget.get_property('volume') or 0) - 5)
             self.mpv_widget.set_property('volume', vol)
+            self.show_osd(f"🔉 Volume: {int(vol)}%")
         elif key == Qt.Key.Key_M:
             mute = not self.mpv_widget.get_property('mute')
             self.mpv_widget.set_property('mute', mute)
+            self.show_osd("🔇 Muted" if mute else "🔊 Unmuted")
         elif key == Qt.Key.Key_A:
             self._cycle_aspect()
         elif key == Qt.Key.Key_C:

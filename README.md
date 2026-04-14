@@ -16,8 +16,14 @@ Rangmanch Player is a premium, high-performance video player built with **Python
   - **Audio Selector**: Hot-swap between multiple audio tracks/languages during playback.
   - **Subtitle Selector**: Toggle internal subtitles or load external `.srt`, `.ass`, or `.vtt` files on the fly.
 - **🔄 Playback Optimization**:
+  - **⚡ Speed Controller**: Seamlessly switch playback speed from 0.5x to 2.0x.
   - **Shuffle & Loop**: Multiple shuffle and loop modes (Loop One, Loop All, Off).
-  - **Auto-Hide Interface**: Controls fade out gracefully in fullscreen mode after 3 seconds of inactivity.
+  - **Auto-Hide Interface**: Controls fade out gracefully in fullscreen mode.
+- **💎 Pro Features**:
+  - **🖼️ Thumbnail Preview**: Floating preview window on the seek bar for precise navigation.
+  - **🎥 Visual OSD**: Centered high-fidelity icons for volume, seek, and speed feedback.
+  - **🖱️ Double-Click Gestures**: Seek forward/backward or toggle fullscreen with simple double-click gestures.
+  - **📸 Clean Screenshots**: Dedicated button to capture high-quality frames (excludes UI/OSD automatically).
 - **🛠 Advanced Tools**: Built-in Equalizer, Media Information, Video Adjustments, and A-B Loop functionality.
 
 ## 🚀 Quick Start
@@ -51,6 +57,9 @@ Rangmanch Player is a premium, high-performance video player built with **Python
 | `Up / Down` | Volume Up / Down |
 | `P / N` | Previous / Next Item |
 | `Esc` | Exit Fullscreen |
+| **Double-Click Left** | Seek Backward (10s) |
+| **Double-Click Right**| Seek Forward (10s) |
+| **Double-Click Center**| Toggle Fullscreen |
 
 ## 🛠 Project Structure
 

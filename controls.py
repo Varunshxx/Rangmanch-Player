@@ -24,6 +24,7 @@ class ControlBar(QWidget):
         self.setObjectName("ControlBar")
         
         self._is_dragging = False
+        self._is_vol_dragging = False
         self._duration = 0
         
         self.setup_ui()
@@ -64,6 +65,8 @@ class ControlBar(QWidget):
         self.volume_slider.setObjectName("VolumeSlider")
         self.volume_slider.setRange(0, 150)
         self.volume_slider.setFixedWidth(100)
+        self.volume_slider.sliderPressed.connect(self._on_vol_pressed)
+        self.volume_slider.sliderReleased.connect(self._on_vol_released)
         
         for btn in [self.btn_play, self.btn_prev, self.btn_stop, self.btn_next, self.btn_volume_icon]:
             btn.setFixedSize(32, 32)
@@ -87,15 +90,24 @@ class ControlBar(QWidget):
         self.btn_loop.setFixedSize(32, 32)
         self.btn_loop.setFlat(True)
 
+        self.btn_speed = QPushButton("⚡ 1.0x")
+        self.btn_speed.setFixedHeight(32)
+        self.btn_speed.setFlat(True)
+        self.btn_speed.setStyleSheet("QPushButton { padding: 0 8px; }")
+
         self.btn_audio = QPushButton("🎵 Audio")
         self.btn_audio.setFixedHeight(32)
         self.btn_audio.setFlat(True)
-        self.btn_audio.setStyleSheet("padding: 0 8px;")
+        self.btn_audio.setStyleSheet("QPushButton { padding: 0 8px; }")
 
         self.btn_subtitles = QPushButton("💬 Subtitles")
         self.btn_subtitles.setFixedHeight(32)
         self.btn_subtitles.setFlat(True)
-        self.btn_subtitles.setStyleSheet("padding: 0 8px;")
+        self.btn_subtitles.setStyleSheet("QPushButton { padding: 0 8px; }")
+
+        self.btn_screenshot = QPushButton("📸")
+        self.btn_screenshot.setFixedSize(32, 32)
+        self.btn_screenshot.setFlat(True)
 
         self.btn_fullscreen = QPushButton("⛶")
         self.btn_fullscreen.setFixedSize(32, 32)
@@ -104,8 +116,26 @@ class ControlBar(QWidget):
         self.time_label = QLabel("00:00 / 00:00")
         self.time_label.setObjectName("TimeLabel")
         
-        for btn in [self.btn_shuffle, self.btn_loop, self.btn_audio, self.btn_subtitles, self.btn_fullscreen]:
+        for btn in [self.btn_shuffle, self.btn_loop, self.btn_speed, self.btn_audio, self.btn_subtitles, self.btn_screenshot, self.btn_fullscreen]:
             self.right_buttons.addWidget(btn)
+        
+        # Thumbnail Preview Frame (Floating)
+        p = self.window() or self.parent() or self
+        self.thumbnail_preview = QFrame(p)
+        self.thumbnail_preview.setFixedSize(160, 90)
+        self.thumbnail_preview.setObjectName("ThumbnailPreview")
+        self.thumbnail_preview.setStyleSheet("""
+            #ThumbnailPreview {
+                background-color: #000;
+                border: 2px solid #4fc3f7;
+                border-radius: 4px;
+            }
+        """)
+        self.thumb_label = QLabel(self.thumbnail_preview)
+        self.thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumb_label.setScaledContents(True)
+        self.thumb_label.setFixedSize(160, 90)
+        self.thumbnail_preview.hide()
             
         self.right_buttons.addWidget(self.time_label)
         row2_layout.addLayout(self.right_buttons)
@@ -127,8 +157,12 @@ class ControlBar(QWidget):
             QPushButton:hover {
                 background-color: #333333;
             }
-            QPushButton:pressed {
+            QPushButton[active="true"] {
                 background-color: #4fc3f7;
+                color: #000000;
+            }
+            QPushButton[muted="true"] {
+                color: #ff5252;
             }
             QLabel {
                 color: #ffffff;
@@ -218,8 +252,10 @@ class ControlBar(QWidget):
         self.btn_shuffle.clicked.connect(self._toggle_shuffle)
         self.btn_loop.clicked.connect(self._toggle_loop)
         
+        self.btn_speed.clicked.connect(self._show_speed_menu)
         self.btn_audio.clicked.connect(self._show_audio_menu)
         self.btn_subtitles.clicked.connect(self._show_subtitle_menu)
+        self.btn_screenshot.clicked.connect(self._take_screenshot)
         
         # Real time sync via MPV
         self.player.observe_property('time-pos', self.update_time_pos)
@@ -272,9 +308,11 @@ class ControlBar(QWidget):
 
     def update_volume_slider(self, name, value):
         try:
-            if value is not None:
+            if value is not None and not self._is_vol_dragging:
                 self.volume_slider.blockSignals(True)
-                self.volume_slider.setValue(int(value))
+                # Keep real volume in player, but UI shows 0 if muted
+                display_val = 0 if self.player.mute else int(value)
+                self.volume_slider.setValue(display_val)
                 self.volume_slider.blockSignals(False)
                 self._refresh_volume_icon()
         except RuntimeError:
@@ -282,19 +320,32 @@ class ControlBar(QWidget):
 
     def update_mute(self, name, value):
         try:
+            self.volume_slider.blockSignals(True)
+            if value:
+                self.volume_slider.setValue(0)
+            else:
+                self.volume_slider.setValue(int(self.player.volume or 0))
+            self.volume_slider.blockSignals(False)
             self._refresh_volume_icon()
         except RuntimeError:
             pass
 
     def _refresh_volume_icon(self):
-        is_muted = self.player.mute
-        vol = self.player.volume or 0
-        if is_muted or vol == 0:
-            self.btn_volume_icon.setText("🔇")
-            self.btn_volume_icon.setStyleSheet("color: #ff5252;") # Reddish for mute
-        else:
-            self.btn_volume_icon.setText("🔊")
-            self.btn_volume_icon.setStyleSheet("color: #ffffff;")
+        try:
+            is_muted = self.player.mute or (self.player.volume == 0)
+            self.btn_volume_icon.setText("🔇" if is_muted else "🔊")
+            self.btn_volume_icon.setProperty("muted", "true" if self.player.mute else "false")
+            self._update_style(self.btn_volume_icon)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _update_style(self, widget):
+        try:
+            if widget and widget.style():
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+        except Exception:
+            pass
 
     def _on_track_list_changed(self, name, value):
         # We don't need to do much here since we rebuild menus on click,
@@ -303,6 +354,8 @@ class ControlBar(QWidget):
 
     def sync_ui(self):
         try:
+            if not self or not self.player:
+                return
             # Backup sync
             pos = self.player.time_pos or 0
             dur = self.player.duration or 0
@@ -315,6 +368,7 @@ class ControlBar(QWidget):
             self._refresh_volume_icon()
             self._update_shuffle_button()
             self._update_loop_button()
+            self._update_speed_button()
             self._update_fullscreen_button()
         except RuntimeError:
             pass
@@ -330,22 +384,65 @@ class ControlBar(QWidget):
 
     def _update_shuffle_button(self):
         shuffle = self.player.shuffle
-        self.btn_shuffle.setStyleSheet("background-color: #4fc3f7; border-radius: 6px;" if shuffle else "")
+        self.btn_shuffle.setProperty("active", "true" if shuffle else "false")
+        self.btn_shuffle.style().unpolish(self.btn_shuffle)
+        self.btn_shuffle.style().polish(self.btn_shuffle)
 
     def _update_loop_button(self):
         loop_playlist = self.player['loop-playlist']
         loop_file = self.player['loop-file']
+        is_active = False
         if loop_file != 'no':
             self.btn_loop.setText("↺¹")
-            self.btn_loop.setStyleSheet("background-color: #4fc3f7; border-radius: 6px;")
+            is_active = True
         elif loop_playlist != 'no':
             self.btn_loop.setText("↻")
-            self.btn_loop.setStyleSheet("background-color: #4fc3f7; border-radius: 6px;")
+            is_active = True
         else:
             self.btn_loop.setText("→")
-            self.btn_loop.setStyleSheet("")
+            
+        self.btn_loop.setProperty("active", "true" if is_active else "false")
+        self.btn_loop.style().unpolish(self.btn_loop)
+        self.btn_loop.style().polish(self.btn_loop)
 
     # --- Actions ---
+    def _show_speed_menu(self):
+        menu = QMenu(self)
+        speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+        current_speed = self.player.speed or 1.0
+        
+        for s in speeds:
+            action = menu.addAction(f"{s}x")
+            action.setCheckable(True)
+            if abs(s - current_speed) < 0.01:
+                action.setChecked(True)
+            action.triggered.connect(lambda chk, val=s: self._on_speed_changed(val))
+            
+        pos = self.btn_speed.mapToGlobal(QPoint(0, 0))
+        menu.exec(pos - QPoint(0, menu.sizeHint().height()))
+
+    def _on_speed_changed(self, speed):
+        self.player.speed = speed
+        self._update_speed_button()
+        if hasattr(self.parent(), 'show_osd'):
+            self.parent().show_osd(f"⚡ Speed: {speed}x")
+
+    def _take_screenshot(self):
+        shot_dir = os.path.join(os.path.expanduser("~"), "Pictures", "RangmanchPlayer")
+        if not os.path.exists(shot_dir):
+            os.makedirs(shot_dir)
+        
+        filename = f"Snapshot_{int(self.player.time_pos or 0)}s.png"
+        path = os.path.join(shot_dir, filename)
+        
+        # Use 'video' flag to exclude any UI/subtitles overlay if possible
+        self.player.command('screenshot-to-file', path, 'video') 
+        
+        if hasattr(self.parent(), 'show_osd'):
+            self.parent().show_osd("📸 Snapshot Saved!")
+        else:
+            QToolTip.showText(QCursor.pos(), "Snapshot Saved to Pictures!")
+
     def _toggle_pause(self):
         self.player.pause = not self.player.pause
 
@@ -354,8 +451,25 @@ class ControlBar(QWidget):
         self._refresh_volume_icon()
 
     def _set_volume(self, value):
-        self.player.volume = value
-        self._refresh_volume_icon()
+        try:
+            # Auto-unmute when user manually changes volume slider
+            if self.player.mute and value > 0:
+                self.player.mute = False
+            
+            self.player.volume = value
+            self._refresh_volume_icon()
+            
+            # Visual feedback (only during drag to avoid sync spam)
+            if self._is_vol_dragging and hasattr(self.parent(), 'show_osd'):
+                self.parent().show_osd(f"🔊 {int(value)}%")
+        except RuntimeError:
+            pass
+
+    def _on_vol_pressed(self):
+        self._is_vol_dragging = True
+
+    def _on_vol_released(self):
+        self._is_vol_dragging = False
 
     def _on_seek_pressed(self):
         self._is_dragging = True
@@ -372,7 +486,16 @@ class ControlBar(QWidget):
     def _update_fullscreen_button(self):
         is_fs = self.player.fullscreen or (self.window() and self.window().isFullScreen())
         self.btn_fullscreen.setText("⊡" if is_fs else "⛶")
-        self.btn_fullscreen.setStyleSheet("background-color: #4fc3f7; border-radius: 6px; color: black;" if is_fs else "")
+        self.btn_fullscreen.setProperty("active", "true" if is_fs else "false")
+        self.btn_fullscreen.style().unpolish(self.btn_fullscreen)
+        self.btn_fullscreen.style().polish(self.btn_fullscreen)
+
+    def _update_speed_button(self):
+        speed = self.player.speed or 1.0
+        self.btn_speed.setText(f"⚡ {speed}x")
+        self.btn_speed.setProperty("active", "true" if speed != 1.0 else "false")
+        self.btn_speed.style().unpolish(self.btn_speed)
+        self.btn_speed.style().polish(self.btn_speed)
 
     def _toggle_shuffle(self):
         self.player.shuffle = not self.player.shuffle
@@ -470,10 +593,22 @@ class ControlBar(QWidget):
                 percent = max(0, min(1, pos_x / width))
                 target_time = percent * self._duration
                 QToolTip.showText(event.globalPosition().toPoint(), format_time(target_time), self.seek_slider)
+
+                # Thumbnail Preview Positioning
+                thumb_x = event.position().x() - (self.thumbnail_preview.width() / 2)
+                thumb_x = max(0, min(self.seek_slider.width() - self.thumbnail_preview.width(), thumb_x))
+                global_pos = self.seek_slider.mapToGlobal(QPoint(int(thumb_x), -self.thumbnail_preview.height() - 10))
+                if self.parent():
+                    local_pos = self.parent().mapFromGlobal(global_pos)
+                    self.thumbnail_preview.move(local_pos)
+                    self.thumbnail_preview.show()
             
             # Reset hide timer on mouse move over slider
             if self.window() and self.window().isFullScreen():
                 self.show_controls()
+        
+        elif obj == self.seek_slider and event.type() == QEvent.Type.Leave:
+            self.thumbnail_preview.hide()
                 
         return super().eventFilter(obj, event)
 
