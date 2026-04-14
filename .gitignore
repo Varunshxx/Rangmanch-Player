@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+build/
+dist/
+*.spec
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# App Specific
+# Extra large binaries
+libmpv-2.dll
+*.7z
+
+# Local media/screenshots (if any are created)
+screenshots/
+*.mp4
+*.mkv
+*.avi
